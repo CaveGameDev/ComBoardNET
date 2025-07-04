@@ -1,0 +1,2134 @@
+<html>
+<head>
+  <title>Cork Board</title>
+  <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+  <!-- Firebase SDKs -->
+  <script type="module">
+    // IMPORTANT: REPLACE WITH YOUR OWN FIREBASE PROJECT CONFIGURATION
+    // You can find this in your Firebase project settings -> General -> Your apps -> Web app -> Firebase SDK snippet -> Config
+    // This example uses a publicly accessible Firestore for simplicity, which is INSECURE for real applications.
+    // For a functional demo, you'll need to set Firestore security rules to allow public read/write access.
+    // Example Insecure Firestore Rules (firestore.rules):
+    // rules_version = '2';
+    // service cloud.firestore {
+    //   match /databases/{database}/documents {
+    //     match /{document=**} {
+    //       allow read, write: if true;
+    //     }
+    //   }
+    // }
+    // In a real application, implement proper authentication and more restrictive security rules.
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY", // Replace with your actual API Key
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com", // Replace with your actual Auth Domain
+      projectId: "YOUR_PROJECT_ID", // Replace with your actual Project ID
+      storageBucket: "YOUR_PROJECT_ID.appspot.com", // Replace with your actual Storage Bucket
+      messagingSenderId: "YOUR_MESSAGING_SENDER_ID", // Replace with your actual Messaging Sender ID
+      appId: "YOUR_APP_ID" // Replace with your actual App ID
+    };
+
+    // Make firebaseConfig available globally for the main app script to access
+    window.firebaseConfig = firebaseConfig;
+  </script>
+  <style>
+    body {
+      margin: 0;
+      background-color: #333;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    /* Firebase Warning Message */
+    #firebaseWarning {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        background-color: #d9534f; /* Red */
+        color: white;
+        text-align: center;
+        padding: 10px;
+        font-weight: bold;
+        z-index: 5000; /* Above everything */
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        display: none; /* Hidden by default, shown by JS if needed */
+        cursor: pointer;
+    }
+    #firebaseWarning:hover {
+        background-color: #c9302c;
+    }
+
+
+    #viewport {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    #viewport.dragging {
+      cursor: grabbing;
+    }
+
+    #corkboard {
+      position: absolute;
+      padding: 20px;
+      box-shadow:
+        inset 0 0 50px rgba(0,0,0,0.5);
+      transform-origin: top left;
+      transition: transform 0.05s ease-out;
+      background-image: url('cork_texture_large.png');
+      background-repeat: repeat;
+      background-size: 1024px 1024px;
+      touch-action: none;
+    }
+
+    .post-it {
+      background: linear-gradient(145deg, #feff9c 0%, #fff6a6 100%);
+      padding: 15px;
+      width: 200px;
+      min-height: 150px;
+      position: absolute;
+      box-shadow:
+        2px 2px 8px rgba(0,0,0,0.2),
+        0 0 40px rgba(0,0,0,0.1);
+      transform: rotate(var(--rotation));
+      transition: transform 0.2s, box-shadow 0.2s;
+      cursor: grab;
+      z-index: 1;
+      touch-action: none;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .post-it:hover {
+      transform: scale(1.05) rotate(var(--rotation));
+      z-index: 1000;
+      box-shadow:
+        5px 5px 15px rgba(0,0,0,0.3),
+        0 0 40px rgba(0,0,0,0.2);
+    }
+
+    .post-it:active {
+      cursor: grabbing;
+    }
+
+    .post-it.selected {
+      outline: 3px solid #4CAF50;
+      z-index: 2000;
+    }
+
+    .post-it .username-container {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .post-it .user-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      margin-right: 8px;
+      object-fit: cover;
+      border: 1px solid rgba(0,0,0,0.1);
+    }
+
+    .post-it .username {
+      font-weight: bold;
+      font-size: 14px;
+      color: #333; /* Default color, can be overridden by usercolor if needed */
+    }
+
+    .post-it .text {
+      font-family: 'Comic Sans MS', cursive;
+      font-size: 16px;
+      white-space: pre-wrap;
+      flex-grow: 1;
+      overflow: auto;
+      min-height: 50px;
+    }
+
+    .post-it .text a {
+        color: #007bff;
+        text-decoration: underline;
+        word-break: break-all;
+    }
+    .post-it .text a:hover {
+        color: #0056b3;
+    }
+
+    .post-it .note-image {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin-top: 8px;
+      border-radius: 4px;
+      object-fit: contain;
+    }
+
+    .note-pile {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      width: 220px;
+      z-index: 1000;
+      touch-action: auto;
+    }
+
+    .new-note {
+      background: linear-gradient(145deg, #feff9c 0%, #fff6a6 100%);
+      padding: 15px;
+      width: 200px;
+      min-height: 180px;
+      box-shadow:
+        0 0 10px rgba(0,0,0,0.2),
+        0 5px 15px rgba(0,0,0,0.1);
+      margin-bottom: 0;
+      cursor: text;
+      position: relative;
+      transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+      touch-action: auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .new-note:hover {
+      transform: translateY(-5px);
+      box-shadow:
+        0 5px 15px rgba(0,0,0,0.3),
+        0 10px 20px rgba(0,0,0,0.2);
+    }
+
+    .new-note.drag-over {
+        background: linear-gradient(145deg, #c7d163 0%, #d8e085 100%);
+        box-shadow: 0 0 15px rgba(0,255,0,0.5), 0 5px 20px rgba(0,255,0,0.3);
+    }
+
+    .new-note textarea {
+      width: 100%;
+      height: auto;
+      flex-grow: 1;
+      border: none;
+      background: transparent;
+      resize: none;
+      font-family: 'Comic Sans MS', cursive;
+      font-size: 16px;
+      touch-action: auto;
+      margin-bottom: 10px;
+    }
+
+    .new-note textarea:focus {
+      outline: none;
+    }
+
+    .new-note-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: auto;
+    }
+
+    .file-name-preview {
+      font-size: 12px;
+      color: #555;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: center;
+      padding: 5px 0;
+    }
+
+    .note-form textarea {
+      width: 200px;
+      height: 100px;
+      margin-bottom: 10px;
+      font-family: 'Comic Sans MS', cursive;
+    }
+
+    button {
+      padding: 8px 16px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      touch-action: auto;
+    }
+
+    button:hover {
+      background: #45a049;
+    }
+
+    button:disabled {
+      background: #888;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    /* New styles for the "Post Note" button */
+    .new-note-actions button.post-note-button {
+      padding: 10px 20px;
+      background: linear-gradient(to bottom, #7acc8c, #4CAF50);
+      border: 2px solid #3d8c40;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.2);
+      font-weight: bold;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+      transition: all 0.1s ease-out;
+    }
+
+    .new-note-actions button.post-note-button:hover {
+      background: linear-gradient(to bottom, #4CAF50, #7acc8c);
+      box-shadow: 0 6px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.3);
+      transform: translateY(-2px);
+    }
+
+    .new-note-actions button.post-note-button:active {
+      background: #45a049;
+      box-shadow: 0 2px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.1);
+      transform: translateY(0);
+    }
+
+    /* Style for the new "Add Image" button */
+    .new-note-actions button.add-image-button {
+      background: #5c677d;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      border: none;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      transition: background 0.1s ease-out;
+    }
+
+    .new-note-actions button.add-image-button:hover {
+      background: #4a5468;
+    }
+    .new-note-actions button.add-image-button:active {
+      background: #3e4757;
+    }
+
+
+    /* Add chat styles */
+    .chat-container {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      width: 300px;
+      height: 400px;
+      background: rgba(50, 50, 50, 0.95);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      z-index: 2000;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      color: white;
+      touch-action: auto;
+    }
+
+    .chat-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 15px;
+        background: rgba(40, 40, 40, 0.95);
+        border-bottom: 1px solid #555;
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
+        font-weight: bold;
+    }
+
+    .chat-minimize-button {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 20px;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0 5px;
+    }
+
+    .chat-minimize-button:hover {
+        color: #ccc;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column-reverse;
+    }
+
+    .chat-message {
+      margin: 4px 0;
+      padding: 8px;
+      border-radius: 4px;
+      max-width: 80%;
+      word-wrap: break-word;
+      color: white;
+    }
+
+    .chat-message.system {
+      background: rgba(80, 80, 80, 0.8);
+      align-self: center;
+      font-style: italic;
+    }
+
+    .chat-message.self {
+      background: rgba(60, 120, 200, 0.8);
+      align-self: flex-end;
+    }
+
+    .chat-message.peer {
+      background: rgba(100, 100, 100, 0.8);
+      align-self: flex-start;
+    }
+
+    .chat-message .username {
+      font-weight: bold;
+      margin-bottom: 4px;
+      font-size: 13px;
+      color: #add8e6;
+      display: flex;
+      align-items: center;
+    }
+    .chat-message .username img {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      margin-right: 6px;
+      object-fit: cover;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .chat-message.self .username {
+        color: #fff;
+    }
+
+    .chat-input {
+      display: flex;
+      padding: 10px;
+      border-top: 1px solid #555;
+    }
+
+    .chat-input input {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #555;
+      border-radius: 4px;
+      margin-right: 8px;
+      background: rgba(60, 60, 60, 0.8);
+      color: white;
+      touch-action: auto;
+    }
+
+    .chat-input input::placeholder {
+      color: #aaa;
+    }
+
+    .chat-input button {
+      padding: 8px 16px;
+    }
+
+    .chat-minimized-button {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      width: 40px;
+      height: 40px;
+      background: rgba(50, 50, 50, 0.95);
+      border-radius: 8px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      cursor: pointer;
+      color: white;
+      font-size: 24px;
+      touch-action: auto;
+    }
+
+    .chat-minimized-button:hover {
+      background: rgba(60, 60, 60, 0.95);
+    }
+
+    /* New/Updated styles for archive modal */
+    .archive-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 3000;
+      touch-action: auto;
+    }
+
+    .archive-modal-content {
+      background: rgba(50, 50, 50, 0.95);
+      border-radius: 8px;
+      padding: 20px;
+      width: 80%;
+      max-width: 900px;
+      height: 80%;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+      color: white;
+    }
+
+    .archive-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .archive-modal-header h3 {
+      margin: 0;
+      color: white;
+    }
+
+    .archive-modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      color: white;
+      cursor: pointer;
+      padding: 0 10px;
+      touch-action: auto;
+    }
+
+    .archive-modal-close:hover {
+      color: #ccc;
+    }
+
+    .archive-list {
+      flex: 1;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 15px;
+      padding-right: 10px;
+    }
+
+    .archive-preview-item {
+      background: rgba(70, 70, 70, 0.8);
+      border-radius: 4px;
+      overflow: hidden;
+      cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      transition: transform 0.2s, box-shadow 0.2s;
+      display: flex;
+      flex-direction: column;
+      touch-action: auto;
+    }
+
+    .archive-preview-item:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 5px 10px rgba(0,0,0,0.3);
+    }
+
+    .archive-preview-item img {
+      width: 100%;
+      height: 150px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .archive-timestamp {
+      padding: 8px;
+      font-size: 12px;
+      color: #ccc;
+      text-align: center;
+    }
+
+    .selected-archive-full-view {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 3001;
+      touch-action: pan-zoom;
+    }
+
+    .selected-archive-full-view img {
+      max-width: 90%;
+      max-height: 90%;
+      object-fit: contain;
+    }
+
+    /* New styles for command list display (desktop version) */
+    .command-list-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(50, 50, 50, 0.95);
+      border-radius: 8px;
+      padding: 10px 15px;
+      color: white;
+      font-size: 14px;
+      z-index: 2000;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      white-space: pre-wrap;
+      line-height: 1.5;
+      pointer-events: none;
+    }
+
+    .command-list-container strong {
+      color: #add8e6;
+      font-weight: normal;
+    }
+
+    /* --- New Mobile UI Specific Styles --- */
+    /* Minimized command button for mobile */
+    .command-minimized-button {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      width: 40px;
+      height: 40px;
+      background: rgba(50, 50, 50, 0.95);
+      border-radius: 8px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      cursor: pointer;
+      color: white;
+      font-size: 24px;
+      touch-action: auto;
+    }
+
+    .command-minimized-button:hover {
+      background: rgba(60, 60, 60, 0.95);
+    }
+
+    /* Command modal overlay for mobile */
+    .command-modal-overlay, .user-settings-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 3000;
+      touch-action: auto;
+    }
+
+    .command-modal-content, .user-settings-modal-content {
+      background: rgba(50, 50, 50, 0.95);
+      border-radius: 8px;
+      padding: 20px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 80%;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+      color: white;
+    }
+
+    .command-modal-header, .user-settings-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .command-modal-header h3, .user-settings-modal-header h3 {
+      margin: 0;
+      color: white;
+    }
+
+    .command-modal-close, .user-settings-modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      color: white;
+      cursor: pointer;
+      padding: 0 10px;
+      touch-action: auto;
+    }
+
+    .command-modal-close:hover, .user-settings-modal-close:hover {
+      color: #ccc;
+    }
+
+    /* Styles for the user settings panel (desktop version) */
+    .user-settings-panel {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 250px;
+        background: rgba(50, 50, 50, 0.95);
+        border-radius: 8px;
+        padding: 15px;
+        z-index: 2000;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        color: white;
+        touch-action: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .user-settings-panel input {
+        width: calc(100% - 16px);
+        padding: 8px;
+        border: 1px solid #555;
+        border-radius: 4px;
+        background: rgba(60, 60, 60, 0.8);
+        color: white;
+    }
+
+    .user-settings-panel button {
+        width: 100%;
+        background: #007bff;
+    }
+
+    .user-settings-panel button:hover {
+        background: #0056b3;
+    }
+
+    /* Mobile specific overrides */
+    @media (max-width: 767px) {
+      .command-list-container, .user-settings-panel { /* Hide desktop elements on mobile */
+        display: none;
+      }
+
+      /* Minimized User Settings button for mobile */
+      .user-settings-minimized-button {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 40px;
+        height: 40px;
+        background: rgba(50, 50, 50, 0.95);
+        border-radius: 8px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 2000;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        cursor: pointer;
+        color: white;
+        font-size: 24px;
+        touch-action: auto;
+      }
+      .user-settings-minimized-button:hover {
+        background: rgba(60, 60, 60, 0.95);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="firebaseWarning">
+    WARNING: Firebase not configured! Data will not save. Please edit index.html and replace YOUR_API_KEY with your actual Firebase project config. Click to dismiss.
+  </div>
+  <div id="viewport">
+    <div id="corkboard" style="width:10000px;height:10000px;"></div>
+  </div>
+  <div class="note-pile">
+    <div class="new-note">
+      <textarea></textarea>
+      <div class="new-note-actions">
+        <span class="file-name-preview"></span>
+        <input type="file" accept="image/png, image/jpeg, image/gif" style="display:none;" id="imageUploadInput">
+        <button class="add-image-button">Add Image/GIF</button>
+        <button class="post-note-button">Post Note</button>
+      </div>
+    </div>
+  </div>
+  <div class="key-controls"></div>
+
+  <!-- User Settings Panel (Desktop) -->
+  <div class="user-settings-panel">
+    <label for="usernameInput">Your Name:</label>
+    <input type="text" id="usernameInput" placeholder="Enter your display name">
+    <label for="avatarUrlInput">Avatar URL (optional):</label>
+    <input type="text" id="avatarUrlInput" placeholder="Image URL for your avatar">
+    <button id="saveUserSettings">Save Settings</button>
+  </div>
+
+  <script type="module">
+    // ========== Firebase Initialization within this module ==========
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, getDocs, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+    // Access firebaseConfig from window
+    const firebaseConfig = window.firebaseConfig;
+
+    let firebaseInitialized = false;
+    let db;
+    let notesCollection;
+    let chatMessagesCollection;
+    let archivesCollection;
+
+    // Check if Firebase config is still using placeholders
+    if (firebaseConfig.apiKey === "YOUR_API_KEY" || firebaseConfig.projectId === "YOUR_PROJECT_ID") {
+        document.getElementById('firebaseWarning').style.display = 'block';
+        document.getElementById('firebaseWarning').addEventListener('click', function() {
+            this.style.display = 'none'; // Dismiss on click
+        });
+        console.warn("Firebase not configured! Please replace placeholder values in index.html for data persistence.");
+    } else {
+        try {
+            // Initialize Firebase
+            const firebaseApp = initializeApp(firebaseConfig);
+            db = getFirestore(firebaseApp);
+            notesCollection = collection(db, "notes");
+            chatMessagesCollection = collection(db, "chatMessages");
+            archivesCollection = collection(db, "archives");
+            firebaseInitialized = true;
+            console.log("Firebase initialized successfully.");
+        } catch (e) {
+            console.error("Failed to initialize Firebase:", e);
+            document.getElementById('firebaseWarning').textContent = "ERROR: Firebase initialization failed. Check console. Click to dismiss.";
+            document.getElementById('firebaseWarning').style.backgroundColor = '#f0ad4e'; // Orange for error
+            document.getElementById('firebaseWarning').style.display = 'block';
+            document.getElementById('firebaseWarning').addEventListener('click', function() {
+                this.style.display = 'none';
+            });
+        }
+    }
+
+
+    // ========== Sequential Audio Playlist Logic With Proper Fallback ===========
+    const audioList = [
+      'Elevator Music.mp3',
+      'The Great Strategy (2005) Roblox Theme 2006.mp3',
+      'Sonic The Hedgehog OST - Green Hill Zone.mp3',
+      'ROBLOX runaway.mp3',
+      'Mii Editor - Mii Maker (Wii U) Music [ ezmp3.cc ].mp3',
+      'omfg low quality.mp3',
+      'Raise_A_Floppa_Soundtrack_[_YouConvert.net_].mp3',
+      'Special Stage - Sonic the Hedgehog 3 [OST] - DeoxysPrime.mp3',
+      'Super Mario 64 - Main Theme Music - Bob-Omb Battlefield [TubeRipper.com].mp3',
+      'Coconut Mall - Mario Kart Wii OST.mp3',
+      'Burger King Whopper Whopper Whopper Commercial But Its Low Quality.mp3',
+      'c418-sweden-minecraft-volume-alpha.mp3',
+      'C418 - Strad (Minecraft Volume Beta) - NycrypticProject.mp3',
+      'Super Mario 64 Music - File Select EXTENDED.mp3',
+      '01-Metallica - Battery.flac',
+      '02. Wasted Years.flac',
+      'Fluorescent light Buzz.mp3'
+    ].map(encodeURI);
+
+    let currentTrackIndex = 0;
+    const audio = new Audio();
+    audio.src = audioList[0];
+    audio.loop = false;
+    audio.addEventListener('ended',()=>{
+      currentTrackIndex=(currentTrackIndex+1)%audioList.length;
+      audio.src=audioList[currentTrackIndex];
+      audio.play().catch(()=>{});
+    });
+    function toggleAudio(){
+      if(audio.paused) audio.play();
+      else audio.pause();
+    }
+    function skipAudio(){
+      if(audioList.length>0){
+        currentTrackIndex=(currentTrackIndex+1)%audioList.length;
+        audio.src=audioList[currentTrackIndex];
+        audio.play().catch(()=>{});
+      }
+    }
+
+    // ============= Main CorkBoard Application Logic =============
+    const app = {
+        // State variables
+        boardOffset: { x: 0, y: 0 },
+        zoom: 1,
+        isChatMinimized: window.innerWidth < 767,
+        showCommandsAsModal: window.innerWidth < 767,
+        showArchives: false,
+        selectedArchive: null,
+        selectedNote: null,
+        newNoteText: '',
+        selectedImageFile: null,
+        isMobile: window.innerWidth < 767,
+        showUserSettingsAsModal: false, // New state for mobile user settings
+
+        // --- Data fetched from Firestore (local copies) ---
+        firestoreData: {
+            notes: [],
+            chatMessages: [],
+            archives: [] // Archives fetched on demand, but stored here after fetch
+        },
+
+        // User settings (local storage for convenience)
+        currentUser: {
+            username: "Guest",
+            avatarUrl: ""
+        },
+
+        localChatMessages: [], // For system messages (not persistent across sessions or shared via Firestore)
+        newChatMessageText: '',
+
+        // Pinch Zoom state
+        activePointers: new Map(),
+        isPinching: false,
+        initialPinchDist: null,
+        initialPinchMidpoint: null,
+        initialPinchZoom: null,
+        initialPinchBoardOffset: null,
+
+        // DOM Elements references
+        viewportEl: null,
+        corkboardEl: null,
+        chatContainerEl: null,
+        chatMessagesScrollEl: null,
+        chatInputEl: null,
+        chatSendButtonEl: null,
+        chatMinimizeButtonEl: null,
+        minimizedChatButtonEl: null,
+        newNoteAreaEl: null,
+        newNoteTextareaEl: null,
+        newNoteFileNamePreviewEl: null,
+        newNotePostButtonEl: null,
+        newNoteAddImageButtonEl: null,
+        imageUploadInputEl: null,
+        commandListContainerEl: null,
+        minimizedCommandButtonEl: null,
+        commandModalOverlayEl: null,
+        archiveModalOverlayEl: null,
+        selectedArchiveFullViewEl: null,
+        keyControlsEl: null,
+        usernameInputEl: null,
+        avatarUrlInputEl: null,
+        saveUserSettingsButtonEl: null,
+        userSettingsPanelEl: null,
+        minimizedUserSettingsButtonEl: null, // New
+        userSettingsModalOverlayEl: null, // New
+
+        // Drag/Pinch-zoom state
+        isBoardDragging: false,
+        lastClientPos: { x: 0, y: 0 },
+        draggingNoteId: null,
+        noteDragStartClientPos: { x: 0, y: 0 },
+        noteDragInitialBoardPos: { x: 0, y: 0 },
+
+        // Constants
+        ZOOM_SPEED: 0.125,
+        MIN_ZOOM: 0.01,
+        MAX_ZOOM: 1,
+        MOVE: 20,
+        NOTE_MOVE: 10,
+        MAX_IMAGE_FILE_SIZE_KB: 500,
+
+        // --- Initialization ---
+        init: function() {
+            this.cacheDOMElements();
+            this.setupEventListeners();
+            this.loadUserData(); // Load user settings (still local)
+            if (firebaseInitialized) { // Only set up listeners if Firebase was initialized
+                this.setupFirestoreListeners(); // Setup real-time listeners for notes and chat
+            } else {
+                this.localChatMessages.push({ type: "system", text: "Firebase not connected. Data will not persist.", created_at: Date.now() });
+            }
+            this.updateUI();
+            window.addEventListener('resize', this.handleResize.bind(this));
+            this.handleResize();
+        },
+
+        cacheDOMElements: function() {
+            this.viewportEl = document.getElementById('viewport');
+            this.corkboardEl = document.getElementById('corkboard');
+            this.newNoteAreaEl = document.querySelector('.new-note');
+            this.newNoteTextareaEl = this.newNoteAreaEl.querySelector('textarea');
+            this.newNoteFileNamePreviewEl = this.newNoteAreaEl.querySelector('.file-name-preview');
+            this.newNotePostButtonEl = this.newNoteAreaEl.querySelector('.post-note-button');
+            this.newNoteAddImageButtonEl = this.newNoteAreaEl.querySelector('.add-image-button');
+            this.imageUploadInputEl = document.getElementById('imageUploadInput');
+            this.keyControlsEl = document.querySelector('.key-controls');
+            this.usernameInputEl = document.getElementById('usernameInput');
+            this.avatarUrlInputEl = document.getElementById('avatarUrlInput');
+            this.saveUserSettingsButtonEl = document.getElementById('saveUserSettings');
+            this.userSettingsPanelEl = document.querySelector('.user-settings-panel');
+        },
+
+        setupEventListeners: function() {
+            // Board and Note interaction (mouse/touch unified using pointer events)
+            this.viewportEl.addEventListener('pointerdown', this.handlePointerDown.bind(this));
+            window.addEventListener('pointermove', this.handlePointerMove.bind(this));
+            window.addEventListener('pointerup', this.handlePointerUp.bind(this));
+            window.addEventListener('pointercancel', this.handlePointerUp.bind(this));
+
+            // Board Zoom (mouse wheel)
+            this.viewportEl.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
+
+            // Keyboard controls
+            window.addEventListener('keydown', this.handleKey.bind(this));
+
+            // New Note Pile Drag & Drop and Input
+            this.newNoteAreaEl.addEventListener('dragover', this.handleDragOver.bind(this));
+            this.newNoteAreaEl.addEventListener('drop', this.handleDrop.bind(this));
+            this.newNoteAreaEl.addEventListener('dragleave', this.handleDragLeave.bind(this));
+            this.newNoteTextareaEl.addEventListener('input', (e) => { this.newNoteText = e.target.value; this.updateNotePileUI(); });
+            this.newNoteTextareaEl.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.handleCreateNote();
+                }
+            });
+            this.newNotePostButtonEl.addEventListener('click', this.handleCreateNote.bind(this));
+            this.newNoteAddImageButtonEl.addEventListener('click', this.handleImageUploadButtonClick.bind(this));
+            this.imageUploadInputEl.addEventListener('change', this.handleImageFileChange.bind(this));
+
+            // User settings panel
+            this.saveUserSettingsButtonEl.addEventListener('click', this.saveUserData.bind(this));
+        },
+
+        // --- Local User Data Management ---
+        loadUserData: function() {
+            try {
+                const storedUsername = localStorage.getItem('corkboardUsername');
+                const storedAvatarUrl = localStorage.getItem('corkboardAvatarUrl');
+                if (storedUsername) {
+                    this.currentUser.username = storedUsername;
+                }
+                if (storedAvatarUrl) {
+                    this.currentUser.avatarUrl = storedAvatarUrl;
+                }
+            } catch (e) {
+                console.error("Error loading user data from localStorage:", e);
+            }
+            // Update the input fields with loaded data
+            if (this.usernameInputEl) this.usernameInputEl.value = this.currentUser.username;
+            if (this.avatarUrlInputEl) this.avatarUrlInputEl.value = this.currentUser.avatarUrl;
+        },
+
+        saveUserData: function() {
+            try {
+                const newUsername = this.usernameInputEl.value.trim();
+                const newAvatarUrl = this.avatarUrlInputEl.value.trim();
+
+                this.currentUser.username = newUsername || "Guest"; // Default to "Guest" if empty
+                this.currentUser.avatarUrl = newAvatarUrl;
+
+                localStorage.setItem('corkboardUsername', this.currentUser.username);
+                localStorage.setItem('corkboardAvatarUrl', this.currentUser.avatarUrl);
+
+                this.localChatMessages.push({ type: "system", text: `Your display name is now "${this.currentUser.username}".`, created_at: Date.now() });
+                this.updateChatMessagesContentUI();
+                this.updateNotesUI(); // Refresh notes to show updated user info on new notes
+                alert("User settings saved!");
+                if (this.isMobile) { // Close modal on save for mobile
+                    this.showUserSettingsAsModal = false;
+                    this.updateUserSettingsUI();
+                }
+            } catch (e) {
+                console.error("Error saving user data to localStorage:", e);
+                alert("Failed to save user settings. Storage might be full.");
+            }
+        },
+
+        // --- Firestore Data Management ---
+        setupFirestoreListeners: function() {
+            if (!firebaseInitialized) return;
+
+            // `notesCollection` is available because it's defined in the same module scope.
+            onSnapshot(notesCollection, (snapshot) => {
+                const notes = [];
+                snapshot.forEach(doc => {
+                    notes.push({ id: doc.id, ...doc.data() });
+                });
+                this.firestoreData.notes = notes.sort((a, b) => (a.created_at || 0) - (b.created_at || 0)); // Ensure `created_at` exists for sorting
+                this.updateNotesUI();
+            }, (error) => {
+                console.error("Error listening to notes:", error);
+                this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Error loading notes from database. Check console for details.", created_at: Date.now() });
+                this.updateChatMessagesContentUI();
+            });
+
+            // Chat Messages Listener
+            const q = query(chatMessagesCollection, orderBy("created_at", "asc"));
+            onSnapshot(q, (snapshot) => {
+                const messages = [];
+                snapshot.forEach(doc => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+                this.firestoreData.chatMessages = messages;
+                this.updateChatMessagesContentUI();
+            }, (error) => {
+                console.error("Error listening to chat messages:", error);
+                this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Error loading chat messages from database. Check console for details.", created_at: Date.now() });
+                this.updateChatMessagesContentUI();
+            });
+
+            // Archives are fetched on demand, not real-time, so no listener here.
+        },
+
+        // --- UI Update Methods (These directly manipulate the DOM) ---
+
+        updateUI: function() {
+            this.updateBoardTransformUI();
+            this.updateNotesUI();
+            this.updateChatUI();
+            this.updateNotePileUI();
+            this.updateCommandsUI();
+            this.updateArchiveModalUI();
+            this.updateSelectedArchiveFullViewUI();
+            this.updateKeyControlsTextUI();
+            this.updateUserSettingsUI(); // Call new user settings UI update
+        },
+
+        updateBoardTransformUI: function() {
+            if (this.corkboardEl) {
+                this.corkboardEl.style.transform = `translate(${this.boardOffset.x}px,${this.boardOffset.y}px) scale(${this.zoom})`;
+            }
+        },
+
+        updateNotesUI: function() {
+            if (!this.corkboardEl) return;
+
+            const currentNoteElements = new Map();
+            Array.from(this.corkboardEl.querySelectorAll('.post-it')).forEach(el => {
+                currentNoteElements.set(el.dataset.noteId, el);
+            });
+
+            // Add/Update notes based on firestoreData.notes
+            this.firestoreData.notes.forEach(note => {
+                let noteEl = currentNoteElements.get(note.id);
+
+                if (!noteEl) {
+                    noteEl = document.createElement('div');
+                    noteEl.className = 'post-it';
+                    noteEl.dataset.noteId = note.id;
+                    this.corkboardEl.appendChild(noteEl);
+                } else {
+                    currentNoteElements.delete(note.id);
+                }
+
+                // Update common properties
+                const x = note.position?.x || 50;
+                const y = note.position?.y || 50;
+                const rot = note.position?.rotation || 0;
+
+                noteEl.style.left = `${x}px`;
+                noteEl.style.top = `${y}px`;
+                noteEl.style.setProperty('--rotation', `${rot}deg`);
+                noteEl.style.zIndex = (this.selectedNote?.id === note.id || this.draggingNoteId === note.id) ? 2000 : 1;
+                noteEl.classList.toggle('selected', this.selectedNote?.id === note.id);
+
+                // Update inner content if changed
+                let usernameContainer = noteEl.querySelector('.username-container');
+                let usernameDiv = noteEl.querySelector('.username');
+                let userAvatar = noteEl.querySelector('.user-avatar');
+                let textDiv = noteEl.querySelector('.text');
+                let mediaEl = noteEl.querySelector('.note-image');
+
+                const noteAuthorUsername = note.username || "Guest";
+                const noteAuthorAvatarUrl = note.avatarUrl || "";
+
+                if (!usernameContainer || !userAvatar || !usernameDiv || usernameDiv.textContent.trim() !== noteAuthorUsername.trim() || userAvatar.src !== noteAuthorAvatarUrl) {
+                    noteEl.innerHTML = `
+                        <div class="username-container">
+                            <img src="${noteAuthorAvatarUrl}" alt="Avatar" class="user-avatar" />
+                            <div class="username">${noteAuthorUsername}</div>
+                        </div>
+                        <div class="text"></div>
+                    `;
+                    usernameContainer = noteEl.querySelector('.username-container');
+                    userAvatar = noteEl.querySelector('.user-avatar');
+                    usernameDiv = noteEl.querySelector('.username');
+                    textDiv = noteEl.querySelector('.text');
+                }
+
+                textDiv.innerHTML = this.renderTextWithLinks(note.text || '').__html;
+
+                if (note.mediaType === 'image' && note.mediaUrl) {
+                    if (!mediaEl || mediaEl.tagName !== 'IMG' || mediaEl.src !== note.mediaUrl) {
+                        if (mediaEl) mediaEl.remove();
+                        const img = document.createElement('img');
+                        img.src = note.mediaUrl;
+                        img.alt = "Note content";
+                        img.className = "note-image";
+                        noteEl.appendChild(img);
+                    }
+                } else {
+                    if (mediaEl) mediaEl.remove();
+                }
+            });
+
+            currentNoteElements.forEach(el => el.remove());
+        },
+
+        updateChatUI: function() {
+            if (this.isChatMinimized) {
+                if (this.chatContainerEl) {
+                    this.chatContainerEl.remove();
+                    this.chatContainerEl = null;
+                }
+                if (!this.minimizedChatButtonEl) {
+                    this.minimizedChatButtonEl = document.createElement('div');
+                    this.minimizedChatButtonEl.className = 'chat-minimized-button';
+                    this.minimizedChatButtonEl.textContent = '💬';
+                    this.minimizedChatButtonEl.addEventListener('click', () => { this.isChatMinimized = false; this.updateChatUI(); });
+                    document.body.appendChild(this.minimizedChatButtonEl);
+                }
+            } else {
+                if (this.minimizedChatButtonEl) {
+                    this.minimizedChatButtonEl.remove();
+                    this.minimizedChatButtonEl = null;
+                }
+                if (!this.chatContainerEl) {
+                    this.chatContainerEl = document.createElement('div');
+                    this.chatContainerEl.className = 'chat-container';
+                    this.chatContainerEl.innerHTML = `
+                        <div class="chat-header">
+                            <span>Chat</span>
+                            <button class="chat-minimize-button">&mdash;</button>
+                        </div>
+                        <div class="chat-messages"></div>
+                        <div class="chat-input">
+                            <input type="text" placeholder="Type a message or command..." />
+                            <button>Send</button>
+                        </div>
+                    `;
+                    document.body.appendChild(this.chatContainerEl);
+
+                    this.chatMessagesScrollEl = this.chatContainerEl.querySelector('.chat-messages');
+                    this.chatInputEl = this.chatContainerEl.querySelector('.chat-input input');
+                    this.chatSendButtonEl = this.chatContainerEl.querySelector('.chat-input button');
+                    this.chatMinimizeButtonEl = this.chatContainerEl.querySelector('.chat-minimize-button');
+
+                    this.chatMinimizeButtonEl.addEventListener('click', () => { this.isChatMinimized = true; this.updateChatUI(); });
+                    this.chatInputEl.addEventListener('input', (e) => { this.newChatMessageText = e.target.value; });
+                    this.chatInputEl.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') {
+                            this.handleChatSend();
+                        }
+                    });
+                    this.chatSendButtonEl.addEventListener('click', this.handleChatSend.bind(this));
+                }
+                this.updateChatMessagesContentUI();
+            }
+        },
+
+        updateChatMessagesContentUI: function() {
+            if (!this.chatMessagesScrollEl) return;
+
+            const allMessages = [
+                ...this.localChatMessages,
+                ...this.firestoreData.chatMessages.map(msg => ({ // Use firestoreData.chatMessages
+                    id: msg.id,
+                    text: msg.text,
+                    username: msg.username,
+                    avatarUrl: msg.avatarUrl,
+                    type: msg.type,
+                    created_at: msg.created_at // Assuming Firestore timestamps are numbers or convert them
+                }))
+            ].sort((a, b) => a.created_at - b.created_at);
+
+            // Clear existing messages to prevent duplicates, then re-add all sorted messages.
+            // This is a simpler approach for a real-time list where order can change or items can be removed.
+            this.chatMessagesScrollEl.innerHTML = '';
+            allMessages.forEach((msg) => {
+                const msgEl = document.createElement('div');
+                msgEl.className = `chat-message ${msg.type}`;
+                if (msg.id) msgEl.dataset.messageId = msg.id;
+
+                if (msg.type === "peer" || msg.type === "self") {
+                    const usernameEl = document.createElement('div');
+                    usernameEl.className = 'username';
+                    if (msg.avatarUrl) {
+                        const avatarImg = document.createElement('img');
+                        avatarImg.src = msg.avatarUrl;
+                        avatarImg.alt = "Avatar";
+                        usernameEl.appendChild(avatarImg);
+                    }
+                    usernameEl.appendChild(document.createTextNode(msg.username));
+                    msgEl.appendChild(usernameEl);
+                }
+                const textEl = document.createElement('div');
+                textEl.className = 'text';
+                textEl.textContent = msg.text;
+                msgEl.appendChild(textEl);
+                this.chatMessagesScrollEl.appendChild(msgEl);
+            });
+            this.chatMessagesScrollEl.scrollTop = this.chatMessagesScrollEl.scrollHeight;
+            if (this.chatInputEl) {
+                this.chatInputEl.value = this.newChatMessageText;
+            }
+        },
+
+        updateNotePileUI: function() {
+            if (!this.newNoteTextareaEl || !this.newNoteFileNamePreviewEl || !this.newNotePostButtonEl) return;
+
+            this.newNoteTextareaEl.value = this.newNoteText;
+            this.newNoteTextareaEl.placeholder = "Write note here or drop an image/GIF.";
+            this.newNoteTextareaEl.disabled = false;
+
+            // Enable post button only if there's text OR an image selected
+            this.newNotePostButtonEl.disabled = (!this.newNoteText.trim() && !this.selectedImageFile);
+            this.newNotePostButtonEl.textContent = 'Post Note';
+
+            // File preview
+            if (this.selectedImageFile) {
+                this.newNoteFileNamePreviewEl.textContent = `Image: ${this.selectedImageFile.name}`;
+                this.newNoteFileNamePreviewEl.style.display = 'block';
+            } else {
+                this.newNoteFileNamePreviewEl.textContent = '';
+                this.newNoteFileNamePreviewEl.style.display = 'none';
+            }
+            this.newNoteAreaEl.classList.toggle('drag-over', this.isDragOver);
+        },
+
+        updateCommandsUI: function() {
+            if (this.isMobile) {
+                if (this.commandListContainerEl) {
+                    this.commandListContainerEl.remove();
+                    this.commandListContainerEl = null;
+                }
+
+                if (!this.showCommandsAsModal) {
+                    if (this.commandModalOverlayEl) {
+                        this.commandModalOverlayEl.remove();
+                        this.commandModalOverlayEl = null;
+                    }
+                    if (!this.minimizedCommandButtonEl) {
+                        this.minimizedCommandButtonEl = document.createElement('div');
+                        this.minimizedCommandButtonEl.className = 'command-minimized-button';
+                        this.minimizedCommandButtonEl.textContent = '❓';
+                        this.minimizedCommandButtonEl.addEventListener('click', () => { this.showCommandsAsModal = true; this.updateCommandsUI(); });
+                        document.body.appendChild(this.minimizedCommandButtonEl);
+                    }
+                } else {
+                    if (this.minimizedCommandButtonEl) {
+                        this.minimizedCommandButtonEl.remove();
+                        this.minimizedCommandButtonEl = null;
+                    }
+                    if (!this.commandModalOverlayEl) {
+                        this.commandModalOverlayEl = document.createElement('div');
+                        this.commandModalOverlayEl.className = 'command-modal-overlay';
+                        this.commandModalOverlayEl.addEventListener('click', () => { this.showCommandsAsModal = false; this.updateCommandsUI(); });
+                        this.commandModalOverlayEl.innerHTML = `
+                            <div class="command-modal-content">
+                                <div class="command-modal-header">
+                                    <h3>Commands</h3>
+                                    <button class="command-modal-close">×</button>
+                                </div>
+                                <div class="command-list-content">
+                                    <strong>Available Commands:</strong>
+                                    <div><strong>!pause</strong> - Toggle music</div>
+                                    <div><strong>!skip</strong> - Skip current song</div>
+                                    <div><strong>/archive board</strong> - Save current board state as image (downloads & archives locally)</div>
+                                    <div><strong>/archive view</strong> - View previously saved board snapshots</div>
+                                </div>
+                            </div>
+                        `;
+                        document.body.appendChild(this.commandModalOverlayEl);
+                        this.commandModalOverlayEl.querySelector('.command-modal-content').addEventListener('click', e => e.stopPropagation());
+                        this.commandModalOverlayEl.querySelector('.command-modal-close').addEventListener('click', () => { this.showCommandsAsModal = false; this.updateCommandsUI(); });
+                    }
+                }
+            } else {
+                if (this.minimizedCommandButtonEl) {
+                    this.minimizedCommandButtonEl.remove();
+                    this.minimizedCommandButtonEl = null;
+                }
+                if (this.commandModalOverlayEl) {
+                    this.commandModalOverlayEl.remove();
+                    this.commandModalOverlayEl = null;
+                }
+                if (!this.commandListContainerEl) {
+                    this.commandListContainerEl = document.createElement('div');
+                    this.commandListContainerEl.className = 'command-list-container';
+                    this.commandListContainerEl.innerHTML = `
+                        <strong>Available Commands:</strong>
+                        <div><strong>!pause</strong> - Toggle music</div>
+                        <div><strong>!skip</strong> - Skip current song</div>
+                        <div><strong>/archive board</strong> - Save current board state as image (downloads & archives locally)</div>
+                        <div><strong>/archive view</strong> - View previously saved board snapshots</div>
+                    `;
+                    document.body.appendChild(this.commandListContainerEl);
+                }
+            }
+        },
+
+        updateUserSettingsUI: function() {
+            if (this.isMobile) {
+                if (this.userSettingsPanelEl) {
+                    this.userSettingsPanelEl.style.display = 'none'; // Hide desktop panel
+                }
+
+                if (!this.showUserSettingsAsModal) {
+                    if (this.userSettingsModalOverlayEl) {
+                        this.userSettingsModalOverlayEl.remove();
+                        this.userSettingsModalOverlayEl = null;
+                    }
+                    if (!this.minimizedUserSettingsButtonEl) {
+                        this.minimizedUserSettingsButtonEl = document.createElement('div');
+                        this.minimizedUserSettingsButtonEl.className = 'user-settings-minimized-button';
+                        this.minimizedUserSettingsButtonEl.textContent = '⚙️'; // Gear icon
+                        this.minimizedUserSettingsButtonEl.addEventListener('click', () => {
+                            this.showUserSettingsAsModal = true;
+                            this.updateUserSettingsUI();
+                        });
+                        document.body.appendChild(this.minimizedUserSettingsButtonEl);
+                    }
+                } else {
+                    if (this.minimizedUserSettingsButtonEl) {
+                        this.minimizedUserSettingsButtonEl.remove();
+                        this.minimizedUserSettingsButtonEl = null;
+                    }
+                    if (!this.userSettingsModalOverlayEl) {
+                        this.userSettingsModalOverlayEl = document.createElement('div');
+                        this.userSettingsModalOverlayEl.className = 'user-settings-modal-overlay';
+                        this.userSettingsModalOverlayEl.addEventListener('click', () => { this.showUserSettingsAsModal = false; this.updateUserSettingsUI(); });
+                        this.userSettingsModalOverlayEl.innerHTML = `
+                            <div class="user-settings-modal-content">
+                                <div class="user-settings-modal-header">
+                                    <h3>User Settings</h3>
+                                    <button class="user-settings-modal-close">×</button>
+                                </div>
+                                <div class="user-settings-form-content">
+                                    <label for="usernameInputModal">Your Name:</label>
+                                    <input type="text" id="usernameInputModal" placeholder="Enter your display name" value="${this.currentUser.username}">
+                                    <label for="avatarUrlInputModal">Avatar URL (optional):</label>
+                                    <input type="text" id="avatarUrlInputModal" placeholder="Image URL for your avatar" value="${this.currentUser.avatarUrl}">
+                                    <button id="saveUserSettingsModal">Save Settings</button>
+                                </div>
+                            </div>
+                        `;
+                        document.body.appendChild(this.userSettingsModalOverlayEl);
+                        this.userSettingsModalOverlayEl.querySelector('.user-settings-modal-content').addEventListener('click', e => e.stopPropagation());
+                        this.userSettingsModalOverlayEl.querySelector('.user-settings-modal-close').addEventListener('click', () => {
+                            this.showUserSettingsAsModal = false;
+                            this.updateUserSettingsUI();
+                        });
+                        // Add event listener for save button in modal
+                        const saveButtonModal = this.userSettingsModalOverlayEl.querySelector('#saveUserSettingsModal');
+                        const usernameInputModal = this.userSettingsModalOverlayEl.querySelector('#usernameInputModal');
+                        const avatarUrlInputModal = this.userSettingsModalOverlayEl.querySelector('#avatarUrlInputModal');
+
+                        saveButtonModal.addEventListener('click', () => {
+                            this.usernameInputEl.value = usernameInputModal.value; // Sync with hidden desktop inputs
+                            this.avatarUrlInputEl.value = avatarUrlInputModal.value;
+                            this.saveUserData();
+                        });
+
+                        // Keep input fields updated if user types
+                        usernameInputModal.addEventListener('input', (e) => {
+                            this.usernameInputEl.value = e.target.value;
+                        });
+                        avatarUrlInputModal.addEventListener('input', (e) => {
+                            this.avatarUrlInputEl.value = e.target.value;
+                        });
+                    }
+                }
+            } else {
+                // Desktop view: Ensure desktop panel is visible and minimized button/modal are removed
+                if (this.userSettingsPanelEl) {
+                    this.userSettingsPanelEl.style.display = 'flex'; // Show desktop panel
+                }
+                if (this.minimizedUserSettingsButtonEl) {
+                    this.minimizedUserSettingsButtonEl.remove();
+                    this.minimizedUserSettingsButtonEl = null;
+                }
+                if (this.userSettingsModalOverlayEl) {
+                    this.userSettingsModalOverlayEl.remove();
+                    this.userSettingsModalOverlayEl = null;
+                }
+            }
+        },
+
+
+        updateArchiveModalUI: function() {
+            if (this.archiveModalOverlayEl) {
+                this.archiveModalOverlayEl.remove();
+                this.archiveModalOverlayEl = null;
+            }
+
+            if (this.showArchives) {
+                this.archiveModalOverlayEl = document.createElement('div');
+                this.archiveModalOverlayEl.className = 'archive-modal-overlay';
+                this.archiveModalOverlayEl.addEventListener('click', () => { this.showArchives = false; this.updateArchiveModalUI(); });
+                this.archiveModalOverlayEl.innerHTML = `
+                    <div class="archive-modal-content">
+                        <div class="archive-modal-header">
+                            <h3>Archived Boards</h3>
+                            <button class="archive-modal-close">×</button>
+                        </div>
+                        <div class="archive-list"></div>
+                    </div>
+                `;
+                document.body.appendChild(this.archiveModalOverlayEl);
+                this.archiveModalOverlayEl.querySelector('.archive-modal-content').addEventListener('click', e => e.stopPropagation());
+                this.archiveModalOverlayEl.querySelector('.archive-modal-close').addEventListener('click', () => { this.showArchives = false; this.updateArchiveModalUI(); });
+
+                const archiveListEl = this.archiveModalOverlayEl.querySelector('.archive-list');
+                if (this.firestoreData.archives.length === 0) { // Use firestoreData.archives
+                    archiveListEl.innerHTML = '<p style="color:#aaa;text-align:center;grid-column:1/-1;">No archives yet. Use "/archive board"!</p>';
+                } else {
+                    // Sort archives by timestamp descending (newest first)
+                    const sortedArchives = [...this.firestoreData.archives].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)); // Use firestoreData.archives
+                    sortedArchives.forEach(arc => {
+                        const itemEl = document.createElement('div');
+                        itemEl.className = 'archive-preview-item';
+                        itemEl.innerHTML = `
+                            <img src="${arc.imageUrl}" alt="Board archive"/>
+                            <div class="archive-timestamp">${arc.timestamp ? new Date(arc.timestamp).toLocaleString() : ""}</div>
+                        `;
+                        itemEl.addEventListener('click', (e) => { e.stopPropagation(); this.selectedArchive = arc; this.updateSelectedArchiveFullViewUI(); });
+                        archiveListEl.appendChild(itemEl);
+                    });
+                }
+            }
+        },
+
+        updateSelectedArchiveFullViewUI: function() {
+            if (this.selectedArchiveFullViewEl) {
+                this.selectedArchiveFullViewEl.remove();
+                this.selectedArchiveFullViewEl = null;
+            }
+
+            if (this.selectedArchive) {
+                this.selectedArchiveFullViewEl = document.createElement('div');
+                this.selectedArchiveFullViewEl.className = 'selected-archive-full-view';
+                this.selectedArchiveFullViewEl.addEventListener('click', () => { this.selectedArchive = null; this.updateSelectedArchiveFullViewUI(); });
+                this.selectedArchiveFullViewEl.innerHTML = `
+                    <img src="${this.selectedArchive.imageUrl}" alt="Archive full view"/>
+                `;
+                document.body.appendChild(this.selectedArchiveFullViewEl);
+            }
+        },
+
+        updateKeyControlsTextUI: function() {
+            if (!this.keyControlsEl) return;
+            this.keyControlsEl.textContent = this.selectedNote ?
+                "Note selected: Drag/move, Arrow keys+R/Esc"
+                :"Drag notes/board, Arrows or scroll to zoom";
+        },
+
+        // --- Event Handlers ---
+
+        handleResize: function() {
+            const wasMobile = this.isMobile;
+            this.isMobile = window.innerWidth < 767;
+            if (this.isMobile !== wasMobile) {
+                this.isChatMinimized = this.isMobile;
+                this.showCommandsAsModal = this.isMobile;
+                this.showUserSettingsAsModal = false; // Close settings modal if switching from desktop to mobile
+                this.updateUI();
+            }
+        },
+
+        handlePointerDown: function(e) {
+            // Ignore right-clicks (button 2) and middle-clicks (button 1)
+            if (e.button === 1 || e.button === 2) return;
+
+            // Add current pointer to activePointers map
+            this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+            // Check for multi-touch pinch zoom
+            if (this.activePointers.size === 2) {
+                this.isBoardDragging = false;
+                this.isPinching = true;
+
+                const pointers = Array.from(this.activePointers.values());
+                const p1 = pointers[0];
+                const p2 = pointers[1];
+
+                this.initialPinchDist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+                this.initialPinchMidpoint = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+                this.initialPinchZoom = this.zoom;
+                this.initialPinchBoardOffset = { ...this.boardOffset };
+
+                e.preventDefault();
+                return;
+            }
+
+            // Check if a UI element (chat, note pile, modal, command button, file input, user settings, firebase warning) was clicked/touched
+            if (e.target.closest('.note-pile') || e.target.closest('.chat-container') || e.target.closest('.chat-minimized-button') || e.target.closest('.archive-modal-overlay') || e.target.closest('.command-minimized-button') || e.target.closest('.command-modal-overlay') || e.target.closest('.user-settings-minimized-button') || e.target.closest('.user-settings-modal-overlay') || e.target === this.imageUploadInputEl || e.target.closest('.user-settings-panel') || e.target.closest('#firebaseWarning')) {
+                return;
+            }
+
+            const noteElement = e.target.closest('.post-it');
+            if (noteElement) {
+                // Note drag initiated (single pointer)
+                const noteId = noteElement.dataset.noteId;
+                const note = this.firestoreData.notes.find(n => n.id === noteId);
+                // In local mode, all notes are editable by the current user.
+                if (note) {
+                    this.selectedNote = note;
+                    this.draggingNoteId = note.id;
+                    this.noteDragStartClientPos = { x: e.clientX, y: e.clientY };
+                    this.noteDragInitialBoardPos = { x: note.position.x, y: note.position.y };
+                    this.updateNotesUI();
+                    this.updateKeyControlsTextUI();
+                    e.stopPropagation();
+                }
+            } else {
+                // Board pan initiated (single pointer)
+                this.isBoardDragging = true;
+                this.lastClientPos = { x: e.clientX, y: e.clientY };
+                this.viewportEl.classList.add('dragging');
+            }
+            e.preventDefault();
+        },
+
+        handlePointerMove: function(e) {
+            // Only proceed if primary button is pressed (for mouse) or it's a touch move
+            // (e.buttons & 1) checks if the primary button (left button for mouse) is down
+            if (e.pointerType !== 'touch' && (e.buttons & 1) === 0) {
+                return;
+            }
+
+            // Update current pointer position in activePointers map
+            this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+            if (this.draggingNoteId) {
+                e.preventDefault();
+
+                const currentClientX = e.clientX;
+                const currentClientY = e.clientY;
+
+                const dx = (currentClientX - this.noteDragStartClientPos.x) / this.zoom;
+                const dy = (currentClientY - this.noteDragStartClientPos.y) / this.zoom;
+
+                const newX = this.noteDragInitialBoardPos.x + dx;
+                const newY = this.noteDragInitialBoardPos.y + dy;
+
+                const currentNote = this.firestoreData.notes.find(n => n.id === this.draggingNoteId);
+                if (currentNote) { // All notes are editable in local mode
+                    // Optimistic update for immediate visual feedback (though Firestore listener will re-render)
+                    this.selectedNote = { ...this.selectedNote, position: { ...this.selectedNote.position, x: newX, y: newY } };
+                    this.updateNotesUI();
+
+                    // Persist change to Firestore
+                    this.updateNotePosition(currentNote, dx, dy); // This sends the update to Firestore
+                }
+
+            } else if (this.isPinching && this.activePointers.size === 2) {
+                e.preventDefault();
+                const pointers = Array.from(this.activePointers.values());
+                const p1 = pointers[0];
+                const p2 = pointers[1];
+
+                const currentDist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+                const currentMidpoint = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+                const zoomFactor = currentDist / this.initialPinchDist;
+                let newZoom = this.initialPinchZoom * zoomFactor;
+                newZoom = Math.max(this.MIN_ZOOM, Math.min(this.MAX_ZOOM, newZoom));
+
+                // Calculate midpoint relative to the viewport for correct zoom centering
+                // The initialPinchMidpoint is already in client coordinates relative to viewport
+                const viewportRect = this.viewportEl.getBoundingClientRect();
+                const midpointX = e.clientX - viewportRect.left;
+                const midpointY = e.clientY - viewportRect.top;
+
+                const currentOffset = this.boardOffset;
+                const currentZoom = this.zoom;
+
+                const newOffsetX = midpointX - (midpointX - currentOffset.x) * (newZoom / currentZoom);
+                const newOffsetY = midpointY - (midpointY - currentOffset.y) * (newZoom / currentZoom);
+
+                this.zoom = newZoom;
+                this.boardOffset = { x: newOffsetX, y: newOffsetY };
+                this.updateBoardTransformUI();
+
+            } else if (this.isBoardDragging) {
+                // Actively panning the board
+                e.preventDefault();
+                const currentClientX = e.clientX;
+                const currentClientY = e.clientY;
+
+                const dx = currentClientX - this.lastClientPos.x;
+                const dy = currentClientY - this.lastClientPos.y;
+                this.boardOffset = { x: this.boardOffset.x + dx, y: this.boardOffset.y + dy };
+                this.lastClientPos = { x: currentClientX, y: currentClientY };
+                this.updateBoardTransformUI();
+            }
+        },
+
+        handlePointerUp: function(e) {
+            // Remove current pointer from activePointers map
+            this.activePointers.delete(e.pointerId);
+
+            // If fewer than 2 pointers remain, end pinching state
+            if (this.activePointers.size < 2) {
+                this.isPinching = false;
+                this.initialPinchDist = null;
+                this.initialPinchMidpoint = null;
+                this.initialPinchZoom = null;
+                this.initialPinchBoardOffset = null;
+            }
+
+            // Reset single pointer drag states
+            this.isBoardDragging = false;
+            if (this.viewportEl) this.viewportEl.classList.remove('dragging');
+            this.draggingNoteId = null;
+            // selectedNote is not reset here; it remains until Escape key or another note is selected.
+        },
+
+        handleWheel: function(e) {
+            e.preventDefault();
+            const scaleAmount = this.ZOOM_SPEED;
+            const newZoom = e.deltaY < 0 ? this.zoom * (1 + scaleAmount) : this.zoom / (1 + scaleAmount);
+            const clampedZoom = Math.max(this.MIN_ZOOM, Math.min(this.MAX_ZOOM, newZoom));
+
+            // Calculate mouse position relative to viewport
+            const viewportRect = this.viewportEl.getBoundingClientRect();
+            const mouseX = e.clientX - viewportRect.left;
+            const mouseY = e.clientY - viewportRect.top;
+
+            // Calculate new offset to keep the mouse position fixed relative to the board
+            const currentOffset = this.boardOffset;
+            const currentZoom = this.zoom;
+
+            const newOffsetX = mouseX - (mouseX - currentOffset.x) * (clampedZoom / currentZoom);
+            const newOffsetY = mouseY - (mouseY - currentOffset.y) * (clampedZoom / currentZoom);
+
+            this.zoom = clampedZoom;
+            this.boardOffset = { x: newOffsetX, y: newOffsetY };
+            this.updateBoardTransformUI();
+        },
+
+        handleKey: function(e) {
+            // Prevent key actions if typing in input/textarea or any modal is open
+            if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA"||this.showCommandsAsModal||this.showArchives||this.selectedArchive||this.showUserSettingsAsModal) return;
+
+            if(e.key==="Escape"){
+                if(this.selectedArchive){this.selectedArchive=null;this.updateSelectedArchiveFullViewUI();e.preventDefault();return;}
+                if(this.showArchives){this.showArchives=false;this.updateArchiveModalUI();e.preventDefault();return;}
+                if(this.showCommandsAsModal){ this.showCommandsAsModal=false; this.updateCommandsUI(); e.preventDefault(); return;}
+                if(this.showUserSettingsAsModal){ this.showUserSettingsAsModal=false; this.updateUserSettingsUI(); e.preventDefault(); return;} // New
+                if(this.selectedNote){ this.selectedNote=null; this.updateNotesUI(); this.updateKeyControlsTextUI(); e.preventDefault();return;}
+                if(!this.isChatMinimized){ this.isChatMinimized=true; this.updateChatUI(); e.preventDefault();return;}
+            }
+
+            if(this.selectedNote){
+                let needsUpdatePosition = false;
+                let needsUpdateRotation = false;
+                let newX = this.selectedNote.position?.x||0;
+                let newY = this.selectedNote.position?.y||0;
+                let newRot = this.selectedNote.position?.rotation||0;
+                switch(e.key){
+                  case "ArrowLeft": newX -= this.NOTE_MOVE; needsUpdatePosition = true; break;
+                  case "ArrowRight": newX += this.NOTE_MOVE; needsUpdatePosition = true; break;
+                  case "ArrowUp": newY -= this.NOTE_MOVE; needsUpdatePosition = true; break;
+                  case "ArrowDown": newY += this.NOTE_MOVE; needsUpdatePosition = true; break;
+                  case "r": newRot += (Math.random()-0.5)*10; needsUpdateRotation = true; break;
+                }
+                if(needsUpdatePosition){
+                    this.updateNotePosition(this.selectedNote, newX - (this.selectedNote.position?.x||0), newY - (this.selectedNote.position?.y||0));
+                    e.preventDefault();
+                }
+                if(needsUpdateRotation){
+                    this.updateNoteRotation(this.selectedNote, newRot - (this.selectedNote.position?.rotation||0));
+                    e.preventDefault();
+                }
+            } else if(!this.showArchives && !this.selectedArchive && !this.isChatMinimized && !this.showCommandsAsModal && !this.showUserSettingsAsModal){ // Added check for settings modal
+                // Board movement with keyboard if no note selected and no modal open
+                let needsUpdate = false;
+                let newOffsetX = this.boardOffset.x;
+                let newOffsetY = this.boardOffset.y;
+                switch(e.key){
+                  case "ArrowLeft": newOffsetX += this.MOVE; needsUpdate = true; break;
+                  case "ArrowRight": newOffsetX -= this.MOVE; needsUpdate = true; break;
+                  case "ArrowUp": newOffsetY += this.MOVE; needsUpdate = true; break;
+                  case "ArrowDown": newOffsetY -= this.MOVE; needsUpdate = true; break;
+                }
+                if(needsUpdate){
+                    this.boardOffset = {x: newOffsetX, y: newOffsetY};
+                    this.updateBoardTransformUI();
+                    e.preventDefault();
+                }
+            }
+        },
+
+        handleChatSend: async function() { // Made async for Firestore operations
+            const input = this.chatInputEl.value;
+            if (!input.trim()) return;
+
+            const trimmed = input.trim();
+            const CHAT_CMD_PREFIX = '!';
+            const ARCHIVE_CMD_PREFIX = '/';
+
+            // Command handling
+            if (trimmed.startsWith(CHAT_CMD_PREFIX)) {
+                const command = trimmed.slice(CHAT_CMD_PREFIX.length).toLowerCase();
+                if (command === 'pause') { toggleAudio(); }
+                else if (command === 'skip') { skipAudio(); }
+                else {
+                    this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: `Unknown command '${command}'. Try !pause, !skip.`, created_at: Date.now() });
+                }
+            } else if (trimmed.startsWith(ARCHIVE_CMD_PREFIX)) {
+                const command = trimmed.slice(ARCHIVE_CMD_PREFIX.length).toLowerCase();
+                if (command === 'archive board') { this.handleArchive(); }
+                else if (command === 'archive view') {
+                    if (!firebaseInitialized) {
+                        this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Firebase not connected. Cannot view archives.", created_at: Date.now() });
+                    } else {
+                        // Fetch archives from Firestore before opening modal
+                        try {
+                            const querySnapshot = await getDocs(archivesCollection);
+                            this.firestoreData.archives = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                            this.showArchives = true;
+                            this.updateArchiveModalUI();
+                        } catch (e) {
+                            console.error("Error fetching archives:", e);
+                            this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Error fetching archives from database. Check console for details.", created_at: Date.now() });
+                            this.updateChatMessagesContentUI();
+                        }
+                    }
+                } else {
+                    this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: `Unknown command '${command}'. Try /archive board, /archive view.`, created_at: Date.now() });
+                }
+            } else {
+                // Regular chat message - pushed to Firestore
+                if (!firebaseInitialized) {
+                    this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Firebase not connected. Chat messages will not be saved.", created_at: Date.now() });
+                    this.localChatMessages.push({ id: crypto.randomUUID(), type: "self", text: trimmed, username: this.currentUser.username, avatarUrl: this.currentUser.avatarUrl, created_at: Date.now() });
+                } else {
+                    try {
+                        // `addDoc` automatically generates a document ID
+                        await addDoc(chatMessagesCollection, {
+                            text: trimmed,
+                            username: this.currentUser.username,
+                            avatarUrl: this.currentUser.avatarUrl,
+                            type: 'self',
+                            created_at: Date.now() // Use client timestamp. For perfect consistency across clients, use Firestore's server timestamp.
+                        });
+                    } catch (e) {
+                        console.error("Error sending chat message:", e);
+                        this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Failed to send chat message to database.", created_at: Date.now() });
+                    }
+                }
+            }
+            this.chatInputEl.value = '';
+            this.newChatMessageText = '';
+            this.updateChatMessagesContentUI(); // Update UI, Firestore listener will also trigger.
+        },
+
+        handleImageUploadButtonClick: function() {
+            this.imageUploadInputEl.click();
+        },
+
+        handleImageFileChange: function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                this.processFileForNote(file);
+            }
+            e.target.value = null;
+        },
+
+        processFileForNote: function(file) {
+            this.selectedImageFile = null;
+            this.updateNotePileUI();
+
+            if (!file.type.startsWith('image/')) {
+                alert('Only image files (PNG, JPEG, GIF) are supported for notes.');
+                return;
+            }
+            // Check file size against KB limit
+            if (file.size > this.MAX_IMAGE_FILE_SIZE_KB * 1024) {
+                alert(`File size exceeds the limit of ${this.MAX_IMAGE_FILE_SIZE_KB}KB. Smaller images are required for database storage.`);
+                return;
+            }
+
+            // If valid, store the file and update UI
+            this.selectedImageFile = file;
+            this.updateNotePileUI();
+        },
+
+        handleCreateNote: async function() { // Made async for Firestore operations
+            if (!this.newNoteText.trim() && !this.selectedImageFile) {
+                alert("Please enter text or select an image/GIF for your note.");
+                return;
+            }
+
+            if (this.isSuspiciousLink(this.newNoteText)) { alert("Suspicious link! tiny.cc/bit.ly are banned."); return; }
+
+            // Calculate viewport center in board coordinates for new notes
+            const viewportRect = this.viewportEl.getBoundingClientRect();
+            const viewportCenterX = viewportRect.width / 2;
+            const viewportCenterY = viewportRect.height / 2;
+
+            const boardCenterX = (viewportCenterX - this.boardOffset.x) / this.zoom;
+            const boardCenterY = (viewportCenterY - this.boardOffset.y) / this.zoom;
+
+            let mediaUrl = null;
+            let mediaType = null;
+
+            if (this.selectedImageFile) {
+                try {
+                    // Convert image to Data URL for Firestore storage
+                    mediaUrl = await this.fileToBase64(this.selectedImageFile);
+                    mediaType = 'image';
+                } catch (error) {
+                    console.error("Error converting image to Data URL:", error);
+                    alert("Failed to process image. Please try another file.");
+                    this.selectedImageFile = null;
+                    this.updateNotePileUI();
+                    return;
+                }
+            }
+
+            // Create new note object for Firestore
+            const newNoteData = {
+                text: this.newNoteText,
+                position: {
+                    x: boardCenterX,
+                    y: boardCenterY,
+                    rotation: (Math.random() - 0.5) * 10
+                },
+                mediaUrl: mediaUrl,
+                mediaType: mediaType,
+                username: this.currentUser.username, // Attach current user's name
+                avatarUrl: this.currentUser.avatarUrl, // Attach current user's avatar
+                created_at: Date.now() // Timestamp for sorting
+            };
+
+            if (!firebaseInitialized) {
+                this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Firebase not connected. Note will not be saved.", created_at: Date.now() });
+                // Simulate adding a local note for visual feedback, but it won't persist
+                const tempNoteId = `local-${crypto.randomUUID()}`;
+                this.firestoreData.notes.push({ id: tempNoteId, ...newNoteData });
+                this.updateNotesUI();
+            } else {
+                try {
+                    // Add the new note to Firestore; the listener will update `firestoreData.notes`
+                    await addDoc(notesCollection, newNoteData);
+                    this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Note posted to board.", created_at: Date.now() });
+                } catch (e) {
+                    console.error("Error adding note to Firestore:", e);
+                    this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Failed to post note to database. Storage might be full or permissions are wrong. Check console for details.", created_at: Date.now() });
+                }
+            }
+
+
+            this.newNoteText = '';
+            this.selectedImageFile = null;
+            this.updateNotePileUI();
+            this.updateChatMessagesContentUI(); // Update chat UI for system message
+        },
+
+        handleDragOver: function(e) {
+            e.preventDefault(); e.stopPropagation();
+            const files = e.dataTransfer.items;
+            if (files && files.length > 0 && files[0].kind === 'file' && files[0].type.startsWith('image/')) {
+                this.isDragOver = true;
+            } else {
+                this.isDragOver = false;
+            }
+            this.updateNotePileUI();
+        },
+        handleDragLeave: function(e) {
+            e.preventDefault(); e.stopPropagation();
+            this.isDragOver = false;
+            this.updateNotePileUI();
+        },
+        handleDrop: function(e) {
+            e.preventDefault(); e.stopPropagation();
+            this.isDragOver = false;
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                this.processFileForNote(file);
+            } else {
+                this.selectedImageFile = null;
+                this.updateNotePileUI();
+            }
+        },
+
+        handleArchive: async function() { // Made async for Firestore operations
+            if (!this.corkboardEl) return;
+
+            if (!firebaseInitialized) {
+                this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Firebase not connected. Cannot archive board.", created_at: Date.now() });
+                this.updateChatMessagesContentUI();
+                return;
+            }
+
+            const originalZoom = this.zoom;
+            const originalOffset = { ...this.boardOffset };
+
+            // Temporarily set zoom/offset for consistent screenshot
+            this.zoom = 0.5;
+            this.boardOffset = { x: 0, y: 0 };
+            this.updateBoardTransformUI();
+
+            // Allow DOM to reflow before screenshot
+            await new Promise(resolve => setTimeout(resolve, 300));
+            await this.waitForAllMediaToLoad(this.corkboardEl);
+
+            const canvas = await html2canvas(this.corkboardEl, { scale: 1, useCORS: true });
+            const date = new Date();
+            const filename = `corkboard-${date.toISOString().split('T')[0]}_${date.getHours()}-${date.getMinutes()}.png`;
+            const imageUrl = canvas.toDataURL('image/png');
+
+            // Download (optional, but good for local backup)
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = imageUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // Save to Firestore archives
+            try {
+                await addDoc(archivesCollection, {
+                    timestamp: Date.now(),
+                    imageUrl: imageUrl
+                });
+                this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Board screenshot downloaded and archived in database.", created_at: Date.now() });
+            } catch (e) {
+                console.error("Error archiving board:", e);
+                this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Failed to archive board to database. Storage might be full or permissions are wrong. Check console for details.", created_at: Date.now() });
+            }
+            this.updateChatMessagesContentUI();
+
+            // Restore original zoom and offset after capture, regardless of success/failure
+            this.zoom = originalZoom;
+            this.boardOffset = originalOffset;
+            this.updateBoardTransformUI();
+        },
+
+        // --- Helper Functions ---
+
+        updateNotePosition: async function(note, dx, dy) { // Made async for Firestore
+            if (!firebaseInitialized) return;
+
+            // The note parameter here is the local copy from firestoreData.notes
+            // We need to get its current actual position for the update calculation
+            const currentNoteInStore = this.firestoreData.notes.find(n => n.id === note.id);
+            if (!currentNoteInStore) return; // Should not happen if dragging a valid note
+
+            const updatedX = currentNoteInStore.position.x + dx;
+            const updatedY = currentNoteInStore.position.y + dy;
+
+            try {
+                const noteDocRef = doc(notesCollection, note.id);
+                await updateDoc(noteDocRef, {
+                    'position.x': updatedX,
+                    'position.y': updatedY
+                });
+                // The UI will be updated automatically by the onSnapshot listener when Firestore confirms the change.
+            } catch (e) {
+                console.error("Error updating note position in Firestore:", e);
+                this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Failed to update note position in database.", created_at: Date.now() });
+                this.updateChatMessagesContentUI();
+            }
+        },
+        updateNoteRotation: async function(note, delta) { // Made async for Firestore
+            if (!firebaseInitialized) return;
+
+            const currentNoteInStore = this.firestoreData.notes.find(n => n.id === note.id);
+            if (!currentNoteInStore) return;
+
+            const updatedRot = currentNoteInStore.position.rotation + delta;
+
+            try {
+                const noteDocRef = doc(notesCollection, note.id);
+                await updateDoc(noteDocRef, {
+                    'position.rotation': updatedRot
+                });
+                // The UI will be updated automatically by the onSnapshot listener when Firestore confirms the change.
+            } catch (e) {
+                console.error("Error updating note rotation in Firestore:", e);
+                this.localChatMessages.push({ id: crypto.randomUUID(), type: "system", text: "Failed to update note rotation in database.", created_at: Date.now() });
+                this.updateChatMessagesContentUI();
+            }
+        },
+        isSuspiciousLink: function(text) {
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            let match;
+            while ((match = urlRegex.exec(text)) !== null) {
+                try {
+                    const url = new URL(match[0]), h = url.hostname;
+                    if (h.includes('tiny.cc') || h.includes('bit.ly') || h.includes('bitly.com')) return true;
+                } catch (e) { /* Invalid URL, ignore */ }
+            }
+            return false;
+        },
+        fileToBase64: function(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        },
+        waitForAllMediaToLoad: function(element) {
+            return new Promise(resolve => {
+                const imgs = Array.from(element.querySelectorAll('img'));
+                const allMedia = [...imgs];
+
+                if (allMedia.length === 0) {
+                    resolve();
+                    return;
+                }
+
+                let loadedCount = 0;
+                const totalMedia = allMedia.length;
+
+                const mediaLoaded = () => {
+                    loadedCount++;
+                    if (loadedCount === totalMedia) {
+                        resolve();
+                    }
+                };
+
+                allMedia.forEach(media => {
+                    if (media.tagName === "IMG") {
+                        if (media.complete) {
+                            mediaLoaded();
+                        } else {
+                            media.onload = mediaLoaded;
+                            media.onerror = mediaLoaded;
+                        }
+                    }
+                });
+            });
+        },
+        renderTextWithLinks: function(text) {
+            if (typeof text !== "string" || !text) return { __html: "" };
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const parts = [];
+            let last = 0, match;
+            while ((match = urlRegex.exec(text)) !== null) {
+                const url = match[0], start = match.index, end = urlRegex.lastIndex;
+                if (start > last) parts.push(text.substring(last, start));
+                parts.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+                last = end;
+            }
+            if (last < text.length) parts.push(text.substring(last));
+            return { __html: parts.join('') };
+        }
+    };
+
+    // Start the app when the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', () => {
+        app.init();
+    });
+  </script>
+</body>
+</html>
