@@ -17,15 +17,22 @@
     //     }
     //   }
     // }
+     // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-analytics.js";
     // In a real application, implement proper authentication and more restrictive security rules.
     const firebaseConfig = {
-      apiKey: "YOUR_API_KEY", // Replace with your actual API Key
-      authDomain: "YOUR_PROJECT_ID.firebaseapp.com", // Replace with your actual Auth Domain
-      projectId: "YOUR_PROJECT_ID", // Replace with your actual Project ID
-      storageBucket: "YOUR_PROJECT_ID.appspot.com", // Replace with your actual Storage Bucket
-      messagingSenderId: "YOUR_MESSAGING_SENDER_ID", // Replace with your actual Messaging Sender ID
-      appId: "YOUR_APP_ID" // Replace with your actual App ID
-    };
+    apiKey: "AIzaSyDXrrZXEm9bFpzrO2XTgua7tixkbDX_lrQ",
+    authDomain: "board-82e34.firebaseapp.com",
+    projectId: "board-82e34",
+    storageBucket: "board-82e34.firebasestorage.app",
+    messagingSenderId: "500859282065",
+    appId: "1:500859282065:web:e6a7d1e39edbe5d05d9530",
+    measurementId: "G-3PML56ZLTG"
+
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+  };
 
     // Make firebaseConfig available globally for the main app script to access
     window.firebaseConfig = firebaseConfig;
